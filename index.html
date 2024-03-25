@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Search</title>
+  <link rel="stylesheet" href="https://unpkg.com/react-resizable/css/styles.css" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f4f4;
+    }
+
+    #search-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100px;
+    }
+
+    #search-bar-main {
+      padding: 10px;
+      font-size: 16px;
+    }
+
+    #results-container {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(2, 1fr);
+      gap: 20px;
+      padding: 20px;
+      position: relative;
+    }
+
+    .panel {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background-color: #fff;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      cursor: pointer;
+      min-width: 200px;
+      min-height: 100px;
+      transition: all 0.3s ease-in-out;
+    }
+
+    .panel:hover {
+      transform: scale(1.05);
+    }
+
+    .panel.expanded {
+      width: 200%;
+      height: 200%;
+      z-index: 2;
+    }
+
+    .iframe-container {
+      width: 100%;
+      height: 100%;
+      border: none;
+      overflow: auto;
+    }
+
+    .url-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      padding: 5px;
+      box-sizing: border-box;
+    }
+
+    input[type="text"] {
+      width: calc(100% - 10px);
+      padding: 5px;
+      font-size: 14px;
+    }
+
+    .buttons {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      display: flex;
+      gap: 5px;
+    }
+
+    .remove-button, .expand-button, .minimize-button {
+      cursor: pointer;
+      font-size: 14px;
+      color: #555;
+    }
+
+    .remove-button::before {
+      content: '✕';
+    }
+
+    .expand-button::before {
+      content: '⬜';
+    }
+
+    .minimize-button::before {
+      content: '-';
+    }
+
+    #add-panel-button {
+      margin-top: 20px;
+      padding: 10px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+
+    #minimized-panels-container {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background-color: #f4f4f4;
+      padding: 5px;
+      box-sizing: border-box;
+      display: flex;
+      justify-content: flex-start;
+      gap: 5px;
+      overflow-x: auto;
+    }
+
+    .minimized-panel {
+      cursor: pointer;
+      padding: 5px;
+      background-color: #fff;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body>
+
+<div id="search-container">
+  <input type="text" id="search-bar-main" placeholder="Search all websites">
+</div>
+
+<div id="results-container"></div>
+<div id="minimized-panels-container"></div>
+<button id="add-panel-button">Add Panel</button>
+
+<script>
+  let defaultWebsites = [
+    'https://www.bing.com/search',
+    'https://en.wikipedia.org/wiki/Special:Search',
+    'https://ground.news/search',
+    'about:blank',
+  ];
+
+  const resultsContainer = document.getElementById('results-container');
+  const searchMain = document.getElementById('search-bar-main');
+  const addPanelButton = document.getElementById('add-panel-button');
+  const minimizedPanelsContainer = document.getElementById('minimized-panels-container');
+
+  addPanelButton.addEventListener('click', addPanel);
+
+  function addPanel() {
+    defaultWebsites.push('');
+    const newPanel = createPanel(defaultWebsites.length - 1, '');
+    resultsContainer.appendChild(newPanel);
+  }
+
+  const panels = defaultWebsites.map((url, index) => createPanel(index, url));
+  panels.forEach(panel => resultsContainer.appendChild(panel));
+
+  function createPanel(index, url) {
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.dataset.index = index;
+
+    const iframe = document.createElement('iframe');
+    iframe.className = 'iframe-container';
+    iframe.src = url;
+    iframe.onload = () => addScrollListener(iframe);
+    panel.appendChild(iframe);
+
+    const urlBar = document.createElement('div');
+    urlBar.className = 'url-bar';
+    const urlInput = document.createElement('input');
+    urlInput.type = 'text';
+    urlInput.value = url;
+    urlInput.setAttribute('placeholder', `Enter URL for Panel ${index + 1}`);
+    urlBar.appendChild(urlInput);
+    panel.appendChild(urlBar);
+
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.className = 'buttons';
+    panel.appendChild(buttonsContainer);
+
+    const removeButton = document.createElement('div');
+    removeButton.className = 'remove-button';
+    removeButton.addEventListener('click', () => removePanel(panel));
+    buttonsContainer.appendChild(removeButton);
+
+    const expandButton = document.createElement('div');
+    expandButton.className = 'expand-button';
+    expandButton.addEventListener('click', () => togglePanelSize(panel, true));
+    buttonsContainer.appendChild(expandButton);
+
+    const minimizeButton = document.createElement('div');
+    minimizeButton.className = 'minimize-button';
+    minimizeButton.addEventListener('click', () => togglePanelSize(panel, false));
+    buttonsContainer.appendChild(minimizeButton);
+
+    urlInput.addEventListener('input', () => updatePanelUrl(panel, urlInput.value.trim()));
+    urlInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        updatePanelUrl(panel, urlInput.value.trim());
+        event.preventDefault();
+      }
+    });
+
+    makeResizable(panel, iframe);
+    return panel;
+  }
+
+  function togglePanelSize(panel, expand) {
+    if (expand) {
+      panel.classList.add('expanded');
+      const minimizedPanel = panel.querySelector('.minimized-panel');
+      if (minimizedPanel) {
+        minimizedPanelsContainer.removeChild(minimizedPanel);
+      }
+    } else {
+      panel.classList.remove('expanded');
+      const minimizedPanel = createMinimizedPanel(panel);
+      minimizedPanelsContainer.appendChild(minimizedPanel);
+    }
+  }
+
+  function removePanel(panel) {
+    const index = parseInt(panel.dataset.index, 10);
+    defaultWebsites.splice(index, 1);
+    resultsContainer.removeChild(panel);
+    updatePanelIndices();
+  }
+
+  function updatePanelIndices() {
+    const currentPanels = Array.from(resultsContainer.children);
+    currentPanels.forEach((panel, index) => {
+      panel.dataset.index = index;
+      const urlInput = panel.querySelector('.url-bar input');
+      urlInput.setAttribute('placeholder', `Enter URL for Panel ${index + 1}`);
+    });
+  }
+
+  function updatePanelUrl(panel, newUrl) {
+    const index = parseInt(panel.dataset.index, 10);
+    defaultWebsites[index] = newUrl;
+    const iframe = panel.querySelector('.iframe-container');
+    loadUrlInIframe(iframe, newUrl);
+  }
+
+  function searchWebsite(websiteUrl, searchTerm) {
+    if (websiteUrl.includes('www.bing.com')) {
+      return `${websiteUrl}/search?q=${encodeURIComponent(searchTerm)}`;
+    } else if (websiteUrl.includes('en.wikipedia.org')) {
+      return `https://en.wikipedia.org/wiki/${encodeURIComponent(searchTerm)}`;
+    } else if (websiteUrl.includes('ground.news')) {
+      return `https://ground.news/search?q=${encodeURIComponent(searchTerm)}`;
+    }
+    return websiteUrl;
+  }
+
+  searchMain.addEventListener('input', performMainSearch);
+
+  function performMainSearch() {
+    const searchTerm = searchMain.value.trim();
+
+    panels.forEach(panel => {
+      const iframe = panel.querySelector('.iframe-container');
+      const defaultUrl = defaultWebsites[parseInt(panel.dataset.index, 10)];
+      const url = searchTerm ? searchWebsite(defaultUrl, searchTerm) : 'about:blank';
+      loadUrlInIframe(iframe, url);
+    });
+  }
+
+  function loadUrlInIframe(iframe, url) {
+    iframe.src = url;
+  }
+
+  function createMinimizedPanel(panel) {
+    const minimizedPanel = document.createElement('div');
+    minimizedPanel.className = 'minimized-panel';
+    minimizedPanel.textContent = `Panel ${parseInt(panel.dataset.index, 10) + 1}`;
+    minimizedPanel.addEventListener('click', () => togglePanelSize(panel, true));
+    return minimizedPanel;
+  }
+
+  function makeResizable(panel, iframe) {
+    const handle = document.createElement('div');
+    handle.style.width = '20px';
+    handle.style.height = '20px';
+    handle.style.position = 'absolute';
+    handle.style.bottom = '0';
+    handle.style.right = '0';
+    handle.style.background = '#3498db';
+    handle.style.cursor = 'se-resize';
+    panel.appendChild(handle);
+
+    handle.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      handle.style.background = '#2980b9';
+      const startWidth = panel.offsetWidth;
+      const startHeight = panel.offsetHeight;
+      const startX = event.clientX;
+      const startY = event.clientY;
+
+      function handleMouseMove(event) {
+        const width = startWidth + event.clientX - startX;
+        const height = startHeight + event.clientY - startY;
+        panel.style.width = `${width}px`;
+        panel.style.height = `${height}px`;
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+      }
+
+      function handleMouseUp() {
+        handle.style.background = '#3498db';
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      }
+
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    });
+  }
+
+  function addScrollListener(iframe) {
+    iframe.contentWindow.addEventListener('scroll', () => {
+      const event = new Event('scroll');
+      window.dispatchEvent(event);
+    });
+  }
+</script>
+
+</body>
+</html>
